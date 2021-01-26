@@ -1,3 +1,21 @@
+# JEM Custom Ignores
+*._*
+*.do
+*.csv
+*.pdf
+*.smcl
+*.dta
+*.docx
+*.html
+*.txt
+*.png
+*.gph
+*.zip
+*.DS_Store
+/SOM_ajaved/*
+
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
