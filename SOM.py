@@ -37,6 +37,17 @@ def get_nonsingular_cols(df):
             selected_features.append(key)
             
         print('For key: {} - nan removed:{} num_features:{}'.format(key,nan_rem,len(vals)))
+        
+        
+        
+    singular_features = [feat for feat in df.keys() if not feat in selected_features]
+    if len(singular_features)>0:
+        print('\nWARNING: The following features have only one value:')
+        for feat in singular_features:
+            print('    {}'.format(feat))
+        print('\n')
+    else:
+        print('\nAll features have at least two values\n')
     
     return selected_features
     
@@ -501,7 +512,7 @@ class SOM:
         self.ax.set_ylim(ylim)
         self.ax.get_xaxis().set_ticks([])
         self.ax.get_yaxis().set_ticks([])  
-        self.marker_size =  min([x_size,y_size])*20   
+        self.marker_size =  min([x_size,y_size])*40   
 
         self.text_size = min([x_size,y_size])   
 
@@ -515,7 +526,7 @@ class SOM:
             print(cbar_label)
         
                 
-    def plot_u_matrix(self,include_D=False,output_dir=None,labels=None,sample_vis='labels'):
+    def plot_u_matrix(self,include_D=False,output_dir=None,labels=None,sample_vis='labels',legend_text = None):
         """
         Generates a figure showing the u matrix
 
@@ -548,6 +559,8 @@ class SOM:
         
         self.open_new_fig()
         
+        self.legend_text = legend_text
+        
         
         self.labels = labels
         #plot the sample labels
@@ -579,7 +592,7 @@ class SOM:
             
         plt.close(self.fig)
         
-    def plot_feature_planes(self,output_dir=None,labels=None,sample_vis='labels',plane_vis='u_matrix'):
+    def plot_feature_planes(self,output_dir=None,labels=None,sample_vis='labels',plane_vis='u_matrix', legend_text=None):
         """
         Plots each of the feature planes, including the plane associated with
         the D feature
@@ -589,6 +602,9 @@ class SOM:
         None.
 
         """
+        
+        
+        self.legend_text = legend_text
         self.labels = labels
         #For each feature in the training data set
         for i in range(len(self.data_cols_mod)):
@@ -712,6 +728,95 @@ class SOM:
         
         #Initialize a list to store the indices where a feature was plotted
         used_inds = []
+        self.get_plot_sets(print_coords)
+        
+        # if legend_text == None:
+        #     self.legend_text = [f'label_{i}' for i in range(len(self.label_list))]
+        # else:
+        
+        
+        if self.have_labels:
+            font = {'size': self.text_size*2}
+            for ind,label in enumerate(self.label_list):
+                color = colors[ind]
+                marker = markers[ind]
+                self.ax.scatter(self.data_dict[label]['x'],
+                                self.data_dict[label]['y'],
+                                c = color,
+                                marker = marker,
+                                s = self.marker_size,
+                                edgecolors = "black",
+                                linewidth = self.marker_size/150,
+                                label = self.data_dict[label]['legend_text'])
+            self.ax.legend(shadow=True,fancybox=True,loc='center', ncol=len(self.label_list),bbox_to_anchor=(0.5,-.05),prop=font)    
+        else:
+            self.ax.scatter(self.data_dict[0]['x'],self.data_dict[0]['y'],c=colors[0])
+        
+        # #Loop through each training pattern
+        # for ind in self.X_mod.index:
+        #     #Extract the data associated with the current training pattern
+        #     try:
+        #         cur_x = np.array(self.X_mod.loc[ind,self.data_cols_mod])
+        #     except:
+        #         breakhere=1
+                    
+        #     #Extract the label text
+        #     label_txt = self.X_mod.loc[ind,self.label_col]
+        #     #Find the winning node (the coordinates where the feature will be
+        #     #plotted)
+        #     self.find_winning(cur_x)
+        #     #Determine if the text needs to be offset to avoid plotting over
+        #     #a previous label
+        #     method = 'grid_fraction'
+        #     xytext = self.get_text_offset(used_inds,method)
+        #     #Add the winning coordinates to the list of used coordinates
+        #     used_inds.append(self.winning)
+        #     #Add the label to the winning point on the map
+        #     if np.all(self.labels == None):
+        #         self.ax.scatter(self.winning[0]+xytext[0],self.winning[1]+xytext[1],c=colors[0])
+        #     else:
+        #         color = colors[self.labels[ind]]
+        #         marker = markers[self.labels[ind]]
+        #         self.ax.scatter(self.winning[0]+xytext[0],
+        #                         self.winning[1]+xytext[1],
+        #                         c=color,
+        #                         marker=marker,
+        #                         s = self.marker_size,
+        #                         edgecolors= "black",
+        #                         linewidth=self.marker_size/150)
+                
+        #     # ax = plt.gca()
+        #     # ylim = ax.get_ylim
+        #     # xlim = ax.get_xlim
+        #     # ax.set_ylim([ylim[0]-1,ylim[1]])
+        #     # ax.set_xlim([xlim[0]-1,xlim[1]])
+        #     if print_coords:
+        #         print("label: {} at {}".format(label_txt,self.winning))
+                
+    def get_plot_sets(self,print_coords):
+        
+        #Initialize a list to store the indices where a feature was plotted
+        used_inds = []
+        
+        if np.all(self.labels == None):
+            self.label_list = [0]
+            self.have_labels = False
+        else:
+            self.label_list = list(set(self.labels))
+            self.label_list = [1,0,2]
+            self.have_labels = True
+            
+        # self.legend_text = ['cl1','cl2','cl3']
+        
+        self.data_dict = {}
+        for label in self.label_list:
+            self.data_dict[label] = {}
+            self.data_dict[label]['x'] = []
+            self.data_dict[label]['y'] = []
+            if not self.legend_text:
+                self.data_dict[label]['legend_text'] = f'label_{ind}'
+            else:
+                self.data_dict[label]['legend_text'] = self.legend_text[label]
         
         #Loop through each training pattern
         for ind in self.X_mod.index:
@@ -733,26 +838,19 @@ class SOM:
             #Add the winning coordinates to the list of used coordinates
             used_inds.append(self.winning)
             #Add the label to the winning point on the map
-            if np.all(self.labels == None):
-                self.ax.scatter(self.winning[0]+xytext[0],self.winning[1]+xytext[1],c=colors[0])
-            else:
-                color = colors[self.labels[ind]]
-                marker = markers[self.labels[ind]]
-                self.ax.scatter(self.winning[0]+xytext[0],
-                                self.winning[1]+xytext[1],
-                                c=color,
-                                marker=marker,
-                                s = self.marker_size,
-                                edgecolors= "black",
-                                linewidth=self.marker_size/150)
-                
-            # ax = plt.gca()
-            # ylim = ax.get_ylim
-            # xlim = ax.get_xlim
-            # ax.set_ylim([ylim[0]-1,ylim[1]])
-            # ax.set_xlim([xlim[0]-1,xlim[1]])
+            label = self.labels[ind]
+            
+            try:
+                self.data_dict[label]['x'].append(self.winning[0]+xytext[0])
+            except:
+                breakhere=1
+            self.data_dict[label]['y'].append(self.winning[1]+xytext[1])
             if print_coords:
                 print("label: {} at {}".format(label_txt,self.winning))
+            
+        
+            
+        
     
     def get_text_offset(self,used_inds,method='points'):
         """
