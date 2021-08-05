@@ -75,6 +75,17 @@ features_to_keep = ['record_id',
  'dashdi5',
  'dashdi6']
 
+legend_text = [
+    'group B',
+    'group A',
+    'group C']
+
+
+legend_text = {
+    0:'Group B',
+    1:'Group A',
+    2:'Group C'}
+
 #No dt_diff
 # features_to_keep = ['record_id',
 #  'fs',
@@ -194,11 +205,11 @@ for i in range(1):
     sample_vis='labels'
     sample_vis='symbols'
     
-    SOM_model.plot_u_matrix(include_D,output_dir=output_dir,labels=labels,sample_vis=sample_vis)
+    SOM_model.plot_u_matrix(include_D,output_dir=output_dir,labels=labels,sample_vis=sample_vis,legend_text=legend_text)
     plane_vis='u_matrix'
-    plane_vis='weights'
+    # plane_vis='weights'
     #Plot the feature planes
-    SOM_model.plot_feature_planes(output_dir,labels=labels,sample_vis=sample_vis,plane_vis=plane_vis)
+    SOM_model.plot_feature_planes(output_dir,labels=labels,sample_vis=sample_vis,plane_vis=plane_vis,legend_text=legend_text)
     
     
     t = SOM_model.grid_updates
