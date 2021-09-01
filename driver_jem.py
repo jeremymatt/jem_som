@@ -126,11 +126,6 @@ data_df = data_df[features_to_keep]
 selected_features = SOM.get_nonsingular_cols(data_df)
 
 singular_features = [feat for feat in features_to_keep if not feat in selected_features]
-print('\nWARNING: The following features have only one value:')
-for feat in singular_features:
-    print('    {}'.format(feat))
-
-print('\n')
  
 
 # Get only the data from the features of interest
