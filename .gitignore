@@ -13,6 +13,7 @@
 *.zip
 *.DS_Store
 /SOM_ajaved/*
+*.pkl
 
 
 
