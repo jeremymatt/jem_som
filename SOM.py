@@ -233,7 +233,7 @@ class SOM:
         self.LR_trace = []
         self.NH_trace = []
         
-    def train(self,num_epochs):
+    def train(self,num_epochs,plot_intermediate_epochs = False):
         """
         Train the SOM
 
@@ -249,10 +249,37 @@ class SOM:
 
         """
         
+        if plot_intermediate_epochs == False:
+            plot_intermediate_type = None
+            intermediate_plot_step = 1
+        else:
+            plot_intermediate_type,intermediate_plot_step = plot_intermediate_epochs
+        
         with open('winning.txt','w') as self.f:
             
             for epoch in tqdm.tqdm(range(num_epochs),total = len(range(num_epochs))):
+                    
                 self.epoch = epoch
+                
+                if (plot_intermediate_epochs != None) & (epoch%intermediate_plot_step == 0):
+                    if plot_intermediate_type == 'both':
+                        self.calc_u_matrix()
+                        #Plot the u-matrix
+                        self.plot_u_matrix(False)
+                        #Plot the feature planes
+                        self.plot_feature_planes(False)
+                    
+                    if plot_intermediate_type == 'u_matrix':
+                        self.calc_u_matrix()
+                        #Plot the u-matrix
+                        self.plot_u_matrix(False)
+                    
+                    if plot_intermediate_type == 'feature_planes':
+                        self.calc_u_matrix()
+                        #Plot the feature planes
+                        self.plot_feature_planes(False)
+                    
+                    
                 
                 #Generate a ordered list of all index values into X
                 order = self.X_mod.index.tolist()
@@ -389,7 +416,6 @@ class SOM:
         """
             
             
-        breakhere=1
         testing_neighborhood = True
         testing_neighborhood = False
         #Load sample grid to test neighborhood code - set a breakpoint, set
@@ -848,7 +874,7 @@ class SOM:
             print(cbar_label)
         
                 
-    def plot_u_matrix(self,include_D=False,output_dir=None,labels=None,sample_vis='labels',legend_text = None):
+    def plot_u_matrix(self,final_plot = True):
         """
         Generates a figure showing the u matrix
 
@@ -868,23 +894,25 @@ class SOM:
         
         #Open a new figure
         self.open_new_fig()
-        #Store the legend text in self
-        self.legend_text = legend_text
-        #Store the category labels in self
-        self.labels = labels
+        
+        # #Store the legend text in self
+        # self.legend_text = legend_text
+        # #Store the category labels in self
+        # self.labels = labels
+        
         #plot the sample labels
-        if sample_vis == 'labels':
+        if self.sample_vis == 'labels':
             #Plot with text strings (IE cat, tiger, dog, horse, etc) at the 
             #winning nodes
             self.plot_samples(False)
-        elif sample_vis == 'colors':
+        elif self.sample_vis == 'colors':
             #Used for plotting the RGB test case
             self.plot_samples_colormap()
         else:
             #Plot symbols at the winning nodes
             self.plot_samples_symbols(False)
         
-        if include_D or self.distance == 'euclidean':
+        if self.include_D or self.distance == 'euclidean':
             #Take the sum of the u matrix along the 0th axis; this sums the 
             #differences for each feature for each node.
             #Transpose the u-matrix to align the heatmap correctly
@@ -902,14 +930,19 @@ class SOM:
         self.add_heatmap(grid, colormap,cbar_label)
         #save the figure to file
         plt.tight_layout()
-        if output_dir == None:
-            plt.savefig('u_matrix.png')
+        if final_plot:
+            fn = 'u_matrix_final_{}_epochs.png'.format(self.epoch+1)
         else:
-            plt.savefig(os.path.join(output_dir,'u_matrix.png'))
+            fn = 'u_matrix_ep-{}.png'.format(self.epoch)
+            
+        if self.output_dir == None:
+            plt.savefig(fn)
+        else:
+            plt.savefig(os.path.join(self.output_dir,fn))
             
         plt.close(self.fig)
         
-    def plot_feature_planes(self,output_dir=None,labels=None,sample_vis='labels',plane_vis='u_matrix', legend_text=None):
+    def plot_feature_planes(self,final_plot = True):
         """
         Plots each of the feature planes, including the plane associated with
         the D feature
@@ -921,22 +954,22 @@ class SOM:
         """
         
         
-        self.legend_text = legend_text
-        self.labels = labels
+        # self.legend_text = legend_text
+        # self.labels = labels
         #For each feature in the training data set
         for i in range(len(self.data_cols_mod)):
             
             self.open_new_fig()
             
             #Plot the sample labels
-            if sample_vis == 'labels':
+            if self.sample_vis == 'labels':
                 self.plot_samples(False)
-            elif sample_vis == 'colors':
+            elif self.sample_vis == 'colors':
                 self.plot_samples_colormap(False)
             else:
                 self.plot_samples_symbols(False)
             
-            if plane_vis == 'u_matrix':
+            if self.plane_vis == 'u_matrix':
                 #extract the u-matrix values associated with the current feature, 
                 #transposing to make the data line up when plotting the heatmap
                 grid = self.u_matrix[i,:,:].T
@@ -958,10 +991,16 @@ class SOM:
             plt.title('Feature: {}'.format(self.data_cols_mod[i]),size = self.text_size*1.5)
             #Save the figure to file
             plt.tight_layout()
-            if output_dir == None:
-                plt.savefig('feature_plane-{}.png'.format(self.data_cols_mod[i]))
+            
+            if final_plot:
+                fn = 'feature_plane-{}_final_{}-epochs.png'.format(self.data_cols_mod[i],self.epoch+1)
             else:
-                plt.savefig(os.path.join(output_dir,'feature_plane-{}.png'.format(self.data_cols_mod[i])))
+                fn = 'feature_plane-{}_ep-{}.png'.format(self.data_cols_mod[i],self.epoch)
+            
+            if self.output_dir == None:
+                plt.savefig(fn)
+            else:
+                plt.savefig(os.path.join(self.output_dir,fn))
                     
             plt.close(self.fig)
         
@@ -989,10 +1028,7 @@ class SOM:
         #Loop through each training pattern
         for ind in self.X_mod.index:
             #Extract the data associated with the current training pattern
-            try:
-                cur_x = np.array(self.X_mod.loc[ind,self.data_cols_mod])
-            except:
-                breakhere=1
+            cur_x = np.array(self.X_mod.loc[ind,self.data_cols_mod])
                     
             #Extract the label text
             label_txt = self.X_mod.loc[ind,self.label_col]
@@ -1039,10 +1075,7 @@ class SOM:
         #Loop through each training pattern
         for ind in self.X_mod.index:
             #Extract the data associated with the current training pattern
-            try:
-                cur_x = np.array(self.X_mod.loc[ind,self.data_cols_mod])
-            except:
-                breakhere=1
+            cur_x = np.array(self.X_mod.loc[ind,self.data_cols_mod])
                     
             #Find the winning node (the coordinates where the feature will be
             #plotted)
@@ -1074,8 +1107,6 @@ class SOM:
 
         """
         
-        #Initialize a list to store the indices where a feature was plotted
-        used_inds = []
         self.get_plot_sets(print_coords)
         
         
@@ -1092,14 +1123,14 @@ class SOM:
                                 edgecolors = "black",
                                 linewidth = self.marker_size/150,
                                 label = self.data_dict[label]['legend_text'])
-            num_labels = len(self.label_list)
+            # num_labels = len(self.label_list)
             target_cols = 2
             if len(self.label_list)<=target_cols:
                 ncol = len(self.label_list)
-                nrow = 1
+                # nrow = 1
             else:
                 ncol = target_cols
-                nrow = int(np.ceil(num_labels/target_cols))
+                # nrow = int(np.ceil(num_labels/target_cols))
             self.ax.legend(shadow=True,fancybox=True,loc='center', ncol=ncol,bbox_to_anchor=(0.5,-.05),prop=font)    
         else:
             self.ax.scatter(self.data_dict[0]['x'],self.data_dict[0]['y'],c=self.colors[0])
@@ -1147,10 +1178,7 @@ class SOM:
         #Loop through each training pattern
         for ind in self.X_mod.index:
             #Extract the data associated with the current training pattern
-            try:
-                cur_x = np.array(self.X_mod.loc[ind,self.data_cols_mod])
-            except:
-                breakhere=1
+            cur_x = np.array(self.X_mod.loc[ind,self.data_cols_mod])
                     
             #Extract the label text
             label_txt = self.X_mod.loc[ind,self.label_col]
@@ -1166,10 +1194,7 @@ class SOM:
             #Add the label to the winning point on the map
             label = self.labels[ind]
             
-            try:
-                self.data_dict[label]['x'].append(self.winning[0]+xytext[0])
-            except:
-                breakhere=1
+            self.data_dict[label]['x'].append(self.winning[0]+xytext[0])
             self.data_dict[label]['y'].append(self.winning[1]+xytext[1])
             if print_coords:
                 print("label: {} at {}".format(label_txt,self.winning))
@@ -1232,7 +1257,7 @@ class SOM:
             yval = self.grid_size[1]
             xval = self.grid_size[0]
             yoffset = fraction*yval
-            xoffset = fraction*yval
+            xoffset = fraction*xval
             #Store the total offset (the offset per previous label times the number
             #of previous labels) in a tuple
             dir_tpls = [
@@ -1313,6 +1338,7 @@ class SOM:
             pickle.dump(self.data_cols_mod,file)
             pickle.dump(self.label_col,file)
             pickle.dump(self.num_features,file)
+            pickle.dump(self.epoch,file)
 
 
     def load_weights(self,directory,fn):
@@ -1340,6 +1366,7 @@ class SOM:
             self.data_cols_mod = pickle.load(file)
             self.label_col = pickle.load(file)
             self.num_features = pickle.load(file)
+            self.epoch = pickle.load(file)
             
     def plot_weight_hist(self,directory):
         """
@@ -1447,4 +1474,12 @@ class SOM:
                         'p',
                         '.',
                         '$V$']
+        
+    def visualization_settings(self,output_dir,sample_vis,legend_text,include_D,labels,plane_vis):
+        self.output_dir = output_dir
+        self.sample_vis = sample_vis
+        self.legend_text = legend_text
+        self.include_D = include_D
+        self.labels = labels
+        self.plane_vis = plane_vis
         
