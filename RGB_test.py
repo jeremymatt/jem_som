@@ -9,7 +9,9 @@ Created on Thu Aug 12 14:31:38 2021
 import numpy as np
 import pandas as pd
 import SOM
+# import SOM_bkup as SOM
 import os
+import timeit
 
 
 # X = pd.DataFrame(np.random.rand(500,3))
@@ -28,6 +30,7 @@ label_col = None
 toroidal = False
 distance = 'cosine'
 distance = 'euclidean'
+distance = {'type':'dtw','window_size':0}
 
 #Initialize the model
 model = SOM.SOM(grid_size,X,label_col,alpha,neighborhood_size,toroidal,distance)
@@ -48,7 +51,12 @@ model.visualization_settings(output_dir,sample_vis,legend_text,include_D,labels,
     
 #Train the model and save the weights  
 plot_intermediate_epochs = ('both',1)
+plot_intermediate_epochs = False
+# ex_time = timeit.timeit(lambda: model.train(num_epochs,plot_intermediate_epochs),number=10)
+# print('Execution time: {}'.format(round(ex_time,5)))
+
 model.train(num_epochs,plot_intermediate_epochs)
+
 model.save_weights(output_dir,'weights.pkl')
  
 

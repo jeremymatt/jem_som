@@ -16,6 +16,10 @@ import os
 import pickle
 import tqdm
 import itertools
+from dtaidistance import dtw
+from tslearn import metrics
+import sys
+import itertools
 
 
 def min_max_norm(df,data_labels,categorical_labels = None):
@@ -186,7 +190,7 @@ class SOM:
         #Store the number of features (includeing the extra column added for
         #cosine similarity)
         self.num_features = len(self.data_cols_mod)
-        
+        self.find_winning = None
         if distance == 'cosine':
             #Add the dimension required by cosine similarity
             self.add_dimension()
@@ -198,7 +202,18 @@ class SOM:
             self.X_mod = cp.deepcopy(self.X)
             #Set the method of finding winning to euclidean
             self.find_winning = self.find_winning_euclidean
-            
+        elif type(distance) == dict:
+            if distance['type'] == 'dtw':
+                self.window_size = distance['window_size']
+                #Copy the input training variables without modification into the
+                #working dataframe
+                self.X_mod = cp.deepcopy(self.X)
+                #Set the method of finding winning to euclidean
+                self.find_winning = self.find_winning_dtw
+        
+        if self.find_winning == None:
+            print('Invalid distance type, exiting')
+            sys.exit()
         
         #Initialize a matrix of random numbers in [-0.1, 0.1]
         # self.grid = 0.1*(np.random.rand(self.num_features,grid_size[0],grid_size[1])-0.5)
@@ -445,8 +460,10 @@ class SOM:
             to_update = self.get_weights_to_update()
             #For each variable in the current input pattern, update the weights
             #for that variable at all of the in-neighborhood nodes
-            for ind,val in enumerate(cur_x):
-                to_update[ind,:,:] += self.alpha*(cur_x[ind]-to_update[ind,:,:])
+            # for ind,val in enumerate(cur_x):
+            #     to_update[ind,:,:] += self.alpha*(cur_x[ind]-to_update[ind,:,:])
+                
+            to_update += self.alpha*(cur_x[:,np.newaxis,np.newaxis]-to_update)
             #Store the updated weights back in weights matrix
             self.put_updated_weights(to_update)
             
@@ -556,14 +573,7 @@ class SOM:
         """
         #Generate a temporary variable to contain the sum of the products of 
         #the inputs and the weights
-        temp = np.zeros(self.grid_size)
-        
-        #For each feature in the current training pattern
-        for ind,val in enumerate(cur_x):
-            #Multiply the current feature value by the grid of weights 
-            #associated with that feature and add the result to the temporary 
-            #grid
-            temp += self.grid[ind,:,:]*cur_x[ind]
+        temp = np.sum(self.grid*cur_x[:,np.newaxis,np.newaxis],axis=0)
         
         #Find the x,y coordinates of the winning node.  argmax finds the 
         #1D index based on row-major order.  unravel_index converts the 1D
@@ -571,6 +581,61 @@ class SOM:
         self.winning = np.unravel_index(np.argmax(temp),self.grid_size)
         if self.write_winning:
             self.f.write('epoch: {} item: {} ==> winning node: {}\n'.format(self.epoch,self.ctr,self.winning))
+            
+            
+    def euclidean_distance(self,cur_x):
+        #For each feature in the current training pattern, calculate the 
+        #distance between the feature value and every associated weight
+        #add np.newaxis to current x to force broadcasting along axis 0        
+        return np.power(np.sum(np.power(self.grid-cur_x[:,np.newaxis,np.newaxis],2),axis=0),0.5)
+    
+    
+    def find_winning_dtw(self,cur_x):
+        upper_bounds = self.euclidean_distance(cur_x)
+        
+        lower_bound_threshold = upper_bounds.min().min()
+                
+        lower_bounds = np.ones(self.grid_size)*np.nan
+        for i in range(self.grid_size[0]):
+            for j in range(self.grid_size[1]):
+                lower_bounds[i,j] = metrics.lb_keogh(cur_x, self.grid[:,i,j], radius=self.window_size)
+                
+                
+        candidate_nodes = np.where(lower_bounds<=lower_bound_threshold)
+        
+        candidate_nodes = list(zip(candidate_nodes[0],candidate_nodes[1]))
+        
+        candidate_nodes = list(itertools.product(range(self.grid_size[0]),range(self.grid_size[1])))
+        
+        if len(candidate_nodes) == 1:
+            self.winning = candidate_nodes[0]
+        elif len(candidate_nodes) > 1:
+            min_distance = lower_bound_threshold
+            for node in candidate_nodes:
+                x_copy = cp.deepcopy(cur_x)
+                weights = cp.deepcopy(self.grid[:,node[0],node[1]])
+                distance = dtw.distance_fast(x_copy,weights, window = self.window_size, use_pruning=True)
+                if distance <= min_distance:
+                    self.winning = node
+                    min_distance = distance
+        else:
+            print('ERROR: no candidate dynamic type warping nodes')
+            sys.exit()
+          
+        win_ub = np.where(upper_bounds == upper_bounds.min().min())
+        win_ub = list(zip(win_ub[0],win_ub[1]))
+        win_lb = np.where(lower_bounds == lower_bounds.min().min())
+        win_lb = list(zip(win_lb[0],win_lb[1]))
+        
+        print('Winning Nodes:')
+        print(' upper_bound: {} (dist: {})'.format(win_ub,upper_bounds.min().min()))
+        print(' lower_bound: {} (dist: {})'.format(win_lb,lower_bounds.min().min()))
+        print('         DTW: {} (dist: {})'.format([self.winning],min_distance))
+                
+        breakhere=1
+        
+        
+        
             
     def find_winning_euclidean(self,cur_x):
         """
@@ -588,19 +653,9 @@ class SOM:
 
         """
         
-        #Store the weights matrix in a temporary variable
-        temp = cp.deepcopy(self.grid)
-        
-        #For each feature in the current training pattern, calculate the 
-        #distance between the feature value and every associated weight
-        for ind,val in enumerate(cur_x):
-            temp[ind,:,:] -= val
-        #Square the distances
-        temp = np.power(temp,2)
-        #Sum the squared distances associated with each node
-        temp = np.sum(temp,axis=0)    
-        #Take the square root of the summed distances
-        temp = np.power(temp,0.5)
+        #Find the euclidean distance between the current training pattern
+        #and each node
+        temp = self.euclidean_distance(cur_x)
         
         #Find the x,y coordinates of the winning node.  argmin finds the 
         #1D index based on row-major order.  unravel_index converts the 1D
