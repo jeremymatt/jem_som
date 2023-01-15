@@ -20,6 +20,7 @@ from dtaidistance import dtw
 from tslearn import metrics
 import sys
 import itertools
+from sklearn.cluster import AgglomerativeClustering
 
 
 def min_max_norm(df,data_labels,categorical_labels = None):
@@ -60,7 +61,73 @@ def min_max_norm(df,data_labels,categorical_labels = None):
         df[key] = (df[key]-min_val)/(max_val-min_val)
         
     return df
+
+def combine_duplicate_colums(df_in,keep='merge'):
+    """
+    Checks a pandas dataframe for duplicate columns
+
+    Parameters
+    ----------
+    df : TYPE pandas dataframe
+        DESCRIPTION. Contains the data to check for duplicate columns
+    keep : TYPE, str optional
+        DESCRIPTION. The default is 'merge'. Controls how duplicates are handled
+        merge - replaces the duplicates col1 and col2 with a single column
+                named col1-col2
+        first - keep the first column name and drop the rest
+        last - keep the last column name and drop the rest
+
+    Returns
+    -------
+    duplicates: TYPE, dict
+        DESCRIPTION. If keep='report', return a dict containing lists of duplicate
+        column names
+
+    """
+    
+    df = cp.deepcopy(df_in)
+    keys = list(df.keys())
+    
+    duplicates = {}
+    for key in keys:
+        duplicates[key] = []
+    
+    duplicates_list = []
+    
+    for key1,key2 in itertools.combinations(keys,2):
+        if np.all(df[key1] == df[key2]):
+            if key1 not in duplicates_list:
+                duplicates[key1].append(key2)
+                duplicates_list.append(key2)
+    
+    for key in keys:
+        if len(duplicates[key]) == 0:
+            duplicates.pop(key)
+    key = 'fs'
+    for key in duplicates:
+        dup_list = [key]
+        dup_list.extend(duplicates[key])
+        keys_to_keep = [key for key in df.keys() if key not in dup_list]
+        if keep == 'merge':
+            new_col = '-'.join(dup_list)
+            df[new_col] = df[dup_list[0]]
+            keys_to_keep.append(new_col)
+            
+        else:
+            if keep == 'first':
+                col_to_keep = key
+                keys_to_keep.append(key)
+            elif keep == 'last':
+                keys_to_keep.append(dup_list[-1])
+            else:
+                print('\nWarning: Invalid keep option.  Must be one of:')
+                print('     merge, first, last')
+                print('Defaulting to first')
+                keys_to_keep.append(key)
+            
+        df = df[keys_to_keep]
         
+    return duplicates,df
         
 def get_nonsingular_cols(df):
     """
@@ -119,7 +186,7 @@ def get_nonsingular_cols(df):
 
 
 class SOM:
-    def __init__(self,grid_size,X,label_col,alpha,neighborhood_size,toroidal = False,distance='euclidean'):
+    def __init__(self,grid_size,X,sample_ID_col,alpha,neighborhood_size,toroidal = False,distance='euclidean'):
         """
         Initialize a SOM object
 
@@ -131,10 +198,10 @@ class SOM:
         X : TYPE pandas dataframe
             DESCRIPTION.
             A pandas dataframe containing the training samples
-        label_col : TYPE string
+        sample_ID_col : TYPE string
             DESCRIPTION.
             The name of the column in the pandas dataframe containing the
-            labels
+            sample IDs
         alpha : TYPE float
             DESCRIPTION.
             The starting learning rate
@@ -157,13 +224,14 @@ class SOM:
         """
         #for debugging
         self.write_winning = False
+        self.show_samples = True
         
         #Build lists of colors and marker styles for plotting
         self.build_color_marker_lists()
         
         #Store the grid size and the label column in self
         self.grid_size = grid_size
-        self.label_col = label_col
+        self.sample_ID_col = sample_ID_col
         
         #Store the boundary type and distance metric in self
         self.toroidal = toroidal
@@ -186,7 +254,7 @@ class SOM:
         
         #Generate a list of the names of the columns containing the data
         #features of the training patterns
-        self.get_data_cols(label_col)
+        self.get_data_cols(sample_ID_col)
         #Store the number of features (includeing the extra column added for
         #cosine similarity)
         self.num_features = len(self.data_cols_mod)
@@ -247,6 +315,72 @@ class SOM:
         #the learning rate
         self.LR_trace = []
         self.NH_trace = []
+        
+    def cluster_weights(self):
+        n_features,rows,cols = self.grid.shape
+        
+        # Get the clustering model to apply to the som_weights
+        clustering = AgglomerativeClustering(
+            n_clusters = self.n_clusters, affinity='euclidean', linkage='complete',compute_full_tree=True)
+            # clustering = AgglomerativeClustering(
+            #     n_clusters = self.n_clusters, affinity='euclidean', linkage='complete',compute_full_tree=True)
+        
+        
+        temp_grid = self.grid.reshape((n_features,rows*cols)).T
+        # temp_grid = self.grid.reshape((n_features,rows*cols))
+        # temp_grid = grid.reshape((n_features,rows*cols))
+        
+        # temp_grid2 = np.rot90(temp_grid,axes = (1,0))
+        # temp_grid3 = np.rot90(temp_grid,axes = (0,1))
+        
+        # temp_grid == np.rot90(temp_grid2,axes = (0,1))
+                
+        self.clustering = clustering.fit(temp_grid)
+        labels = clustering.labels_
+        self.grid_clusters = labels.reshape(rows,cols).T
+        # self.grid_clusters = np.rot90(self.grid_clusters,axes = (1,0))
+        # t = pd.DataFrame({0:temp_grid[:,0],1:temp_grid[:,1],2:temp_grid[:,2],'labels':labels})
+        print('calling export function')
+        self.export_sample_clusters()
+        
+    def export_sample_clusters(self):
+        output_df = cp.deepcopy(self.X)
+        #Loop through each training pattern
+        have_series_labels = isinstance(self.labels,pd.core.series.Series)
+        for ind in output_df.index:
+            #Extract the data associated with the current training pattern
+            cur_x = np.array(self.X_mod.loc[ind,self.data_cols_mod])
+                    
+            #Find the winning node (the coordinates where the feature will be
+            #plotted)
+            self.find_winning(cur_x)
+            if have_series_labels:
+                sample_id = output_df.loc[ind,self.sample_ID_col]
+                output_df.loc[ind,self.labels.name] = self.labels[sample_id]
+            output_df.loc[ind,'cluster'] = self.grid_clusters.T[self.winning]
+        
+        print('exporting sample clusters')
+        output_df.to_csv(os.path.join(self.output_dir,'sample_clusters.csv'))
+        
+    def gen_sample_grid(self):
+        
+        grid = np.zeros([3,5,5])
+        n_features,rows,cols = grid.shape
+        for i in range(3):
+            for ii in range(rows):
+                for iii in range(cols):
+                    # print('{},{},{}'.format(i,rows,cols))
+                    grid[i,ii,iii] = 10*(ii+1)+iii+1+100*(i+1)
+                    
+        grid[:,:2,:4] *= 100
+        
+        self.num_features = 3
+        
+        self.grid = grid
+                    
+        return grid
+        
+            
         
     def train(self,num_epochs,plot_intermediate_epochs = False):
         """
@@ -587,7 +721,8 @@ class SOM:
         #For each feature in the current training pattern, calculate the 
         #distance between the feature value and every associated weight
         #add np.newaxis to current x to force broadcasting along axis 0        
-        return np.power(np.sum(np.power(self.grid-cur_x[:,np.newaxis,np.newaxis],2),axis=0),0.5)
+        # return np.power(np.sum(np.power(self.grid-cur_x[:,np.newaxis,np.newaxis],2),axis=0),0.5)
+        return np.sum(np.power(self.grid-cur_x[:,np.newaxis,np.newaxis],2),axis=0)
     
     
     def find_winning_dtw(self,cur_x):
@@ -614,7 +749,9 @@ class SOM:
             for node in candidate_nodes:
                 x_copy = cp.deepcopy(cur_x)
                 weights = cp.deepcopy(self.grid[:,node[0],node[1]])
+                # Figure out how to get dtaidistance working
                 distance = dtw.distance_fast(x_copy,weights, window = self.window_size, use_pruning=True)
+                # distance = None
                 if distance <= min_distance:
                     self.winning = node
                     min_distance = distance
@@ -664,13 +801,13 @@ class SOM:
         if self.write_winning:
             self.f.write('epoch: {} item: {} ==> winning node: {}\n'.format(self.epoch,self.ctr,self.winning))
         
-    def get_data_cols(self,label_col):
+    def get_data_cols(self,sample_ID_col):
         """
         Finds the labels of the data feature columns
 
         Parameters
         ----------
-        label_col : TYPE string
+        sample_ID_col : TYPE string
             DESCRIPTION.
             The name of the column containing the training pattern labels
 
@@ -682,7 +819,7 @@ class SOM:
         #self.X.keys() is a list of the column headers in the pandas dataframe
         #containing the training patterns.  This line of code stores in a list 
         #those column headers that are not equal to the label header
-        self.data_cols = [val for val in self.X.keys() if not val == label_col]
+        self.data_cols = [val for val in self.X.keys() if not val == sample_ID_col]
         #Copy the data columns to a separate list and append the string 'D'
         #The 'D' column will contain the extra dimension for the cosine 
         #similarity calculation
@@ -921,13 +1058,24 @@ class SOM:
         #plot the heat map
         im = plt.imshow(grid,cmap=colormap,origin='lower')
         #Add the colorbar legend
-        if cbar_label:
+        if cbar_label and self.plot_legend:
             cbar = self.ax.figure.colorbar(im,ax=self.ax)
             cbar.ax.set_ylabel(cbar_label, rotation=-90, va="bottom", size=self.text_size*1.25)
             cbar.ax.tick_params(labelsize=self.text_size*.9)
-        else:
-            print(cbar_label)
+        # else:
+        #     print(cbar_label)
+     
+    def plot_clusters(self,n_clusters):
+        self.n_clusters = n_clusters
+        print('calling weight cluster fcn')
+        self.cluster_weights()
+        plane_vis_bkup = cp.deepcopy(self.plane_vis)
+        self.plane_vis = 'clusters'
         
+        
+        self.plot_u_matrix()
+        
+        self.plane_vis = plane_vis_bkup
                 
     def plot_u_matrix(self,final_plot = True):
         """
@@ -955,40 +1103,51 @@ class SOM:
         # #Store the category labels in self
         # self.labels = labels
         
-        #plot the sample labels
-        if self.sample_vis == 'labels':
-            #Plot with text strings (IE cat, tiger, dog, horse, etc) at the 
-            #winning nodes
-            self.plot_samples(False)
-        elif self.sample_vis == 'colors':
-            #Used for plotting the RGB test case
-            self.plot_samples_colormap()
-        else:
-            #Plot symbols at the winning nodes
-            self.plot_samples_symbols(False)
+        if self.show_samples:
+            #plot the sample labels
+            if self.sample_vis == 'labels':
+                #Plot with text strings (IE cat, tiger, dog, horse, etc) at the 
+                #winning nodes
+                self.plot_samples(False)
+            elif self.sample_vis == 'colors':
+                #Used for plotting the RGB test case
+                self.plot_samples_colormap()
+            else:
+                #Plot symbols at the winning nodes
+                self.plot_samples_symbols(False)
+        # else:
+        #     self.calc_u_matrix()
         
-        if self.include_D or self.distance == 'euclidean':
-            #Take the sum of the u matrix along the 0th axis; this sums the 
-            #differences for each feature for each node.
-            #Transpose the u-matrix to align the heatmap correctly
-            grid = np.sum(self.u_matrix,axis=0).T
+        if self.plane_vis == 'clusters':
+            grid = self.grid_clusters
+            cbar_label = None
+            plot_type = 'clusters'
+            colormap = 'brg'
         else:
-            #Take the sum of the u matrix along the 0th axis; this sums the 
-            #differences for each feature for each node, excluding D. 
-            #Transpose the u-matrix to align the heatmap correctly
-            grid = np.sum(self.u_matrix[:-1,:,:],axis=0).T
-        
-        #Set the colormap, colorbar label, and add the heatmap to the figure
-        colormap = 'gray_r'
-        cbar_label = 'Weight Change'
+            plot_type = 'u_matrix'
+            if self.include_D or self.distance == 'euclidean':
+                #Take the sum of the u matrix along the 0th axis; this sums the 
+                #differences for each feature for each node.
+                #Transpose the u-matrix to align the heatmap correctly
+                grid = np.sum(self.u_matrix,axis=0).T
+            else:
+                #Take the sum of the u matrix along the 0th axis; this sums the 
+                #differences for each feature for each node, excluding D. 
+                #Transpose the u-matrix to align the heatmap correctly
+                grid = np.sum(self.u_matrix[:-1,:,:],axis=0).T
+            
+            #Set the colormap, colorbar label, and add the heatmap to the figure
+            colormap = 'gray_r'
+            cbar_label = 'Weight Change'
         # cbar_label = None
         self.add_heatmap(grid, colormap,cbar_label)
         #save the figure to file
         plt.tight_layout()
+        
         if final_plot:
-            fn = 'u_matrix_final_{}_epochs.png'.format(self.epoch+1)
+            fn = '{}_final_{}_epochs.png'.format(plot_type,self.epoch+1)
         else:
-            fn = 'u_matrix_ep-{}.png'.format(self.epoch)
+            fn = '{}_ep-{}.png'.format(plot_type,self.epoch)
             
         if self.output_dir == None:
             plt.savefig(fn)
@@ -1031,6 +1190,7 @@ class SOM:
                 #Add the feature plane to the figure
                 colormap = 'gray_r'
                 cbar_label = 'Weight Change'
+                
                 self.add_heatmap(grid, colormap,cbar_label)
             else:
                 #Extract the weight values associated with the current feature
@@ -1047,10 +1207,15 @@ class SOM:
             #Save the figure to file
             plt.tight_layout()
             
-            if final_plot:
-                fn = 'feature_plane-{}_final_{}-epochs.png'.format(self.data_cols_mod[i],self.epoch+1)
+            if self.plane_vis == 'u_matrix':
+                plane_vis = '-u_matrix'
             else:
-                fn = 'feature_plane-{}_ep-{}.png'.format(self.data_cols_mod[i],self.epoch)
+                plane_vis = ''
+            
+            if final_plot:
+                fn = 'feature_plane-{}{}_final_{}-epochs.png'.format(self.data_cols_mod[i],plane_vis,self.epoch+1)
+            else:
+                fn = 'feature_plane-{}{}_ep-{}.png'.format(self.data_cols_mod[i],plane_vis,self.epoch)
             
             if self.output_dir == None:
                 plt.savefig(fn)
@@ -1086,7 +1251,7 @@ class SOM:
             cur_x = np.array(self.X_mod.loc[ind,self.data_cols_mod])
                     
             #Extract the label text
-            label_txt = self.X_mod.loc[ind,self.label_col]
+            label_txt = self.X_mod.loc[ind,self.sample_ID_col]
             #Find the winning node (the coordinates where the feature will be
             #plotted)
             self.find_winning(cur_x)
@@ -1186,7 +1351,8 @@ class SOM:
             else:
                 ncol = target_cols
                 # nrow = int(np.ceil(num_labels/target_cols))
-            self.ax.legend(shadow=True,fancybox=True,loc='center', ncol=ncol,bbox_to_anchor=(0.5,-.05),prop=font)    
+            if self.plot_legend:
+                self.ax.legend(shadow=True,fancybox=True,loc='center', ncol=ncol,bbox_to_anchor=(0.5,-.05),prop=font)    
         else:
             self.ax.scatter(self.data_dict[0]['x'],self.data_dict[0]['y'],c=self.colors[0])
                 
@@ -1236,7 +1402,7 @@ class SOM:
             cur_x = np.array(self.X_mod.loc[ind,self.data_cols_mod])
                     
             #Extract the label text
-            label_txt = self.X_mod.loc[ind,self.label_col]
+            label_txt = self.X_mod.loc[ind,self.sample_ID_col]
             #Find the winning node (the coordinates where the feature will be
             #plotted)
             self.find_winning(cur_x)
@@ -1391,9 +1557,12 @@ class SOM:
             pickle.dump(self.grid_size,file)
             pickle.dump(self.X_mod,file)
             pickle.dump(self.data_cols_mod,file)
-            pickle.dump(self.label_col,file)
+            pickle.dump(self.sample_ID_col,file)
             pickle.dump(self.num_features,file)
             pickle.dump(self.epoch,file)
+            pickle.dump(self.toroidal,file)
+            pickle.dump(self.distance,file)
+            
 
 
     def load_weights(self,directory,fn):
@@ -1419,9 +1588,14 @@ class SOM:
             self.grid_size = pickle.load(file)
             self.X_mod = pickle.load(file)
             self.data_cols_mod = pickle.load(file)
-            self.label_col = pickle.load(file)
+            self.sample_ID_col = pickle.load(file)
             self.num_features = pickle.load(file)
             self.epoch = pickle.load(file)
+            try:
+                self.toroidal = pickle.load(file)
+                self.distance = pickle.load(file)
+            except:
+                print('WARNING: Obsolete settings archive ==> toroidal and distance types not loaded')
             
     def plot_weight_hist(self,directory):
         """
@@ -1530,11 +1704,12 @@ class SOM:
                         '.',
                         '$V$']
         
-    def visualization_settings(self,output_dir,sample_vis,legend_text,include_D,labels,plane_vis):
+    def visualization_settings(self,output_dir,sample_vis,legend_text,include_D,labels,plane_vis,plot_legend):
         self.output_dir = output_dir
         self.sample_vis = sample_vis
         self.legend_text = legend_text
         self.include_D = include_D
         self.labels = labels
         self.plane_vis = plane_vis
+        self.plot_legend = plot_legend
         

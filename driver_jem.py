@@ -13,6 +13,7 @@ import SOM
 import matplotlib.pyplot as plt
 import numpy as np
 import os
+import copy as cp
 
 
 
@@ -39,7 +40,8 @@ t = np.ones([5,5])
 
 cd = os.getcwd()
 
-data_file = 'lymphedat_bp0.csv'
+# data_file = 'lymphedat_bp0.csv'
+data_file= 'lymphedat_bp0-20221030.csv'
 data_path = os.path.join(cd,data_file)
 
 workspace_dir = os.path.join(cd,'SOM_output')
@@ -54,6 +56,9 @@ if not os.path.isdir(workspace_dir):
 data_df = pd.read_csv(data_path)
 data_df.set_index('record_id',inplace=True)
 data_df['record_id'] = data_df.index
+
+label_ID = 'lymphed'
+data_labels = data_df[label_ID]
 
 features_to_keep = ['record_id',
  'fs',
@@ -81,10 +86,6 @@ legend_text = [
     'group C']
 
 
-legend_text = {
-    0:'Group B',
-    1:'Group A',
-    2:'Group C'}
 
 #No dt_diff
 # features_to_keep = ['record_id',
@@ -107,20 +108,38 @@ legend_text = {
 #  'dashdi6']
 # to_drop = []
 
-label_ID = 'lymphed'
 
-labels = data_df[label_ID]
 
 
 label_df = pd.read_csv(os.path.join(cd,'SOM_output','3clusters','cluster_results.csv'))
 label_df = label_df[['record_id','cluster']]
 label_df.set_index('record_id',inplace=True)
+l2 = label_df['cluster']
 
-labels = label_df['cluster']
+doug_cluster_labels = False
+if doug_cluster_labels:
+    labels = label_df['cluster']
+else:
+    labels = data_labels
 
 #Define the label column name
-label_col = 'record_id'
+sample_ID_col = 'record_id' 
 
+legend_text = {
+    0:'Group A',
+    1:'Group B',
+    2:'Group C'}
+
+legend_text = {}
+label_set = set(labels)
+for label in label_set:
+    legend_text[label] = '{}={}'.format(labels.name,label)
+
+# if labels.name == 'lymphed':
+# legend_text = {
+#     0:'lymphed=0',
+#     1:'lymphed=1',
+#     2:'Group C'}
 
 data_df = data_df[features_to_keep]
 selected_features = SOM.get_nonsingular_cols(data_df)
@@ -131,50 +150,87 @@ singular_features = [feat for feat in features_to_keep if not feat in selected_f
 # Get only the data from the features of interest
 selected_data_feats_df = data_df.loc[:, selected_features]
 
+
 # Drop rows with NaN
 selected_data_feats_df.dropna(axis=0, inplace=True)
 
 
+#%%
+
+dup_cols,selected_data_feats_df = SOM.combine_duplicate_colums(selected_data_feats_df,keep='merge')
 
 selected_features = SOM.get_nonsingular_cols(selected_data_feats_df)
 
 X = selected_data_feats_df[selected_features]
 
-data_labels = [feat for feat in selected_features if not feat == label_col]
+data_labels = [feat for feat in selected_features if not feat == sample_ID_col]
 selected_data_feats_df = SOM.min_max_norm(X,data_labels)
 
 
 
 #Set the grid size
 grid_size = [50,50]
+# grid_size = [10,10]
 # grid_size = [4,4]
 #Set the starting learning rate and neighborhood size
 alpha = 0.9
 # neighborhood_size = 4
 neighborhood_size = int(grid_size[0]/2)
+# neighborhood_size = 2*int(grid_size[0]/3)
 # neighborhood_size = 1
-
-load_trained = True
-
-
-for i in range(1):
-    #Init a SOM object
-    SOM_model = SOM.SOM(grid_size,X,label_col,alpha,neighborhood_size)
+#Set the number of training epochs
+num_epochs = 500
     
-    #Set the number of training epochs
-    num_epochs = 500
-    #Train the SOM
+toroidal = True
+distance='euclidean'
+
+load_trained = True 
+ #%%
+num_iterations = 3
+if load_trained:
+    num_iterations = 1
+for i in range(num_iterations):
+    
+    i+=12
+    
+    
+    if load_trained:
+        weights_dir = 'run3_keep'
+        weights_dir = 'run9_toroidal'
+        weights_dir = 'run9'
+        i = weights_dir.split("_")[0].split('run')[1]
+        directory = os.path.join(cd,'SOM_output',weights_dir)
     
     output_dir = os.path.join(cd,'SOM_output',f'run{i}')
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
+        
+    #Init a SOM object
+    SOM_model = SOM.SOM(grid_size,X,sample_ID_col,alpha,neighborhood_size,toroidal,distance)
+    
+    #boolean flag to include D in the u-matrix calculations
+    include_D = False
+    #Plot the u-matrix
+    sample_vis='labels'
+    # sample_vis='symbols'
+    plane_vis='u_matrix'
+    # plane_vis='weights'
+    
+    plot_legend = True
+    SOM_model.visualization_settings(output_dir,sample_vis,legend_text,include_D,labels,plane_vis,plot_legend)
+    
+    #Train the SOM
     
     if load_trained:
-        weights_dir = r'SOM_output\run10_keep'
-        weights_dir = weights_dir.split('\\')
-        directory = cd
-        for folder in weights_dir:
-            directory = os.path.join(directory,folder)
+        # weights_dir = 'run3_keep'
+        # i = weights_dir.split("_")[0].split('run')[1]
+        # directory = os.path.join(cd,'SOM_output',weights_dir)
+        
+        # weights_dir = r'SOM_output\run3_keep'
+        # weights_dir = weights_dir.split('\\')
+        # directory = cd
+        # for folder in weights_dir:
+        #     directory = os.path.join(directory,folder)
             
         fn = 'weights.pkl'
         
@@ -185,7 +241,8 @@ for i in range(1):
             
     else:
         SOM_model.train(num_epochs)
-        SOM_model.save_weights(output_dir,'weights.pkl')
+    
+    SOM_model.save_weights(output_dir,'weights.pkl')
     
     SOM_model.plot_weight_hist(output_dir)
     
@@ -194,18 +251,36 @@ for i in range(1):
     
     #Calculate the U-matrix differences
     SOM_model.calc_u_matrix()
+    
+    
     #boolean flag to include D in the u-matrix calculations
     include_D = False
     #Plot the u-matrix
     sample_vis='labels'
     sample_vis='symbols'
-    
-    SOM_model.plot_u_matrix(include_D,output_dir=output_dir,labels=labels,sample_vis=sample_vis,legend_text=legend_text)
     plane_vis='u_matrix'
-    # plane_vis='weights'
+    plane_vis='weights'
+    SOM_model.visualization_settings(output_dir,sample_vis,legend_text,include_D,labels,plane_vis,plot_legend)
+    
+    # SOM_model.plot_u_matrix(include_D,output_dir=output_dir,labels=labels,sample_vis=sample_vis,legend_text=legend_text)
+    SOM_model.plot_u_matrix()
     #Plot the feature planes
-    SOM_model.plot_feature_planes(output_dir,labels=labels,sample_vis=sample_vis,plane_vis=plane_vis,legend_text=legend_text)
+    SOM_model.plot_feature_planes()
     
     
-    t = SOM_model.grid_updates
+    #Plot the feature planes
+    SOM_model.plot_feature_planes()
+    
+    n_clusters = 6
+    SOM_model.plot_clusters(n_clusters)
+    
+    
+    # t = SOM_model.grid_updates
+#%%
+runtest = False
 
+if runtest:
+    SOM_model.gen_sample_grid()
+    SOM_model.show_samples = False
+    SOM_model.plot_u_matrix()
+    SOM_model.plot_clusters()

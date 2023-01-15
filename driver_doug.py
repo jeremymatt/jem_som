@@ -36,6 +36,7 @@ t = np.ones([5,5])
 cd = os.getcwd()
 
 data_file = 'lymphedat_bp0.csv'
+data_file= 'lymphedat_bp0-20221030.csv'
 data_path = os.path.join(cd,data_file)
 
 workspace_dir = os.path.join(cd,'SOM_output')
@@ -109,10 +110,12 @@ init_learning_rate = 0.05
 # The number of rows for the grid and number of columns. This dictates 
 # how many nodes the SOM will consist of. Currently not calculated 
 # using PCA or other analyses methods.
-nrows = 16
-ncols = 16
+nrows = 50
+ncols = 50
 # Create the SOM grid (which initializes the SOM network)
-som_grid = somutils.create_grid(nrows, ncols, grid_type='hex')
+grid_type = 'hex'
+grid_type = 'square'
+som_grid = somutils.create_grid(nrows, ncols, grid_type=grid_type)
 
 # Initial neighbourhood radius is defaulted to 2/3 of the longest distance
 # Should be set up similar to R package Kohonen
@@ -128,7 +131,7 @@ niter = 500
 
 # Run SOM
 som_weights, object_distances = somutils.run_som(
-    data, som_grid, 'hex', niter, init_radius, init_learning_rate)
+    data, som_grid, grid_type, niter, init_radius, init_learning_rate)
 
 # It's possible that some data samples were not selected for training, thus do
 # do not have a latest bmu
@@ -136,7 +139,7 @@ object_distances = somutils.fill_bmu_distances(
     data, som_weights, object_distances)
 
 # Number of clusters to cluster SOM
-nclusters = 5
+nclusters = 3
 
 # Cluster SOM nodes
 clustering = somutils.cluster_som(som_weights, nclusters)
