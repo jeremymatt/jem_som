@@ -355,8 +355,8 @@ class SOM:
             #     output_df.loc[ind,self.labels.name] = self.labels[sample_id]
             output_df.loc[ind,'cluster'] = self.grid_clusters.T[self.winning]
         
-        print('exporting sample clusters')
-        output_df.to_csv(os.path.join(self.output_dir,'sample_clusters.csv'))
+        # print('exporting sample clusters')
+        output_df.to_csv(os.path.join(self.output_dir,'sample_clusters-{}.csv'.format(self.n_clusters)))
         
     def gen_sample_grid(self):
         
@@ -1091,7 +1091,7 @@ class SOM:
         None.
 
         """
-        
+        # print('Plotting u-matrix')
         #Open a new figure
         self.open_new_fig()
         
@@ -1172,7 +1172,7 @@ class SOM:
         # self.labels = labels
         #For each feature in the training data set
         for i in range(len(self.data_cols_mod)):
-            
+            # print('Plotting feature plane {}/{}'.format(i+1,len(self.data_cols_mod)))
             self.open_new_fig()
             
             #Plot the sample labels
