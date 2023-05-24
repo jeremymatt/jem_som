@@ -18,6 +18,7 @@ from tslearn import metrics ##
 import sys
 import itertools
 from sklearn.cluster import AgglomerativeClustering
+import colormap as cust_cm
 
 
 def min_max_norm(df,data_labels,categorical_labels = None):
@@ -228,6 +229,7 @@ class SOM:
         None.
 
         """
+        self.color_col = None
         #for debugging
         self.write_winning = False
         self.show_samples = True
@@ -375,8 +377,7 @@ class SOM:
         self.grid = grid
                     
         return grid
-        
-            
+                
         
     def train(self,num_epochs,plot_intermediate_epochs = False):
         """
@@ -1027,9 +1028,13 @@ class SOM:
         self.ax.get_xaxis().set_ticks([])
         self.ax.get_yaxis().set_ticks([])  
         #Set the marker size
-        self.marker_size =  min([x_size,y_size])*40   
+        self.base_marker_size =  min([x_size,y_size])*40 
+        self.marker_size = self.base_marker_size*self.base_fraction
         #Set the text size
         self.text_size = min([x_size,y_size])   
+        
+    def update_marker_size(self,base_fraction):
+        self.base_fraction = base_fraction
 
     def add_heatmap(self,grid,colormap,cbar_label=None):
         """
@@ -1117,9 +1122,9 @@ class SOM:
         
         if self.plane_vis == 'clusters':
             grid = self.grid_clusters
-            cbar_label = None
+            cbar_label = 'Cluster'
             plot_type = 'clusters'
-            colormap = 'brg'
+            colormap = cust_cm.get_cluster_cmap(self.n_clusters)
         else:
             plot_type = 'u_matrix'
             if self.include_D or self.distance == 'euclidean':
@@ -1307,9 +1312,56 @@ class SOM:
             xytext = self.get_text_offset(used_inds,method)
             #Add the winning coordinates to the list of used coordinates
             used_inds.append(self.winning)
+            
+            if self.color_col == None:
+                color = tuple(cur_x)
+            else:
+                color = self.X_mod.loc[ind,self.color_col]
+                
+            
             #Add the label to the winning point on the map
-            self.ax.scatter(self.winning[0]+xytext[0],self.winning[1]+xytext[1],marker='o',s = self.marker_size,color=tuple(cur_x))
-                       
+            self.ax.scatter(self.winning[0]+xytext[0],self.winning[1]+xytext[1],marker='o',s = self.marker_size,color=color)
+        
+    def gen_color_col(self,cur_color_cols,alpha,color_map='viridis'):
+        
+        if not isinstance(cur_color_cols,(list,str,dict)):
+            raise Exception('ERROR: cur_color_cols type must be {} or {}, not {}'.format(list,str,type(cur_color_cols)))
+            
+        if isinstance(cur_color_cols,dict):
+            self.X_mod['colors'] = cur_color_cols['fixed_color']
+            return
+
+        if isinstance(cur_color_cols,str):
+            cur_color_cols = [cur_color_cols]
+            
+        if not len(cur_color_cols) in [1,3]:
+            raise Exception('ERROR: Expected either one column or three column names. Received {}'.format(len(cur_color_cols)))
+            
+        norm_cols = self.X_mod[cur_color_cols].copy()
+            
+        for col in cur_color_cols:
+            min_val = norm_cols[col].min()
+            max_val = norm_cols[col].max()
+            norm_cols['{}_norm'.format(col)] = (norm_cols[col]-min_val)/(max_val-min_val)
+                
+        norm_col_labels = ['{}_norm'.format(col) for col in cur_color_cols]
+        
+        if (len(cur_color_cols) == 3):
+            apha_list = list(np.ones(self.X_mod.shape[0])*alpha)
+            color_tpls = list(zip(norm_cols[norm_col_labels[0]],norm_cols[norm_col_labels[1]],norm_cols[norm_col_labels[2]],apha_list))
+        else:
+            cur_color_cols = '{}_norm'.format(cur_color_cols[0])
+            self.X_mod['colors'] = np.nan
+            cmap = plt.cm.get_cmap(color_map)
+            color_tpls = []
+            for ind,row in self.X_mod.iterrows():
+                r,g,b,_ = cmap(norm_cols.loc[ind,cur_color_cols])
+                color_tpls.append((r,g,b,alpha))
+                
+        self.X_mod['colors'] = color_tpls
+                
+                
+        
                 
     def plot_samples_symbols(self,print_coords = True):
         """
@@ -1382,7 +1434,7 @@ class SOM:
             self.have_labels = False
         else:
             #The data is labeled, plot a different symbol for each category
-            self.label_list = list(set(self.labels))
+            self.label_list = sorted(list(set(self.labels)))
             self.have_labels = True
         
         #Init an empty dictionary
@@ -1666,26 +1718,27 @@ class SOM:
             
     def build_color_marker_lists(self,extended=False):
         #Lists of colors and markers for plotting
-        colors = ['c',
-                       'gold',
-                       'salmon',
-                       'tab:orange',
-                       'lime',
-                       'teal',
-                       'darkgreen',
-                       'cornflowerblue',
-                       'blue',
-                       'navy',
-                       'mediumpurple',
-                       'darkviolet',
-                       'magenta',
-                       'darkmagenta',
-                       'deeppink',
-                       'hotpink',
-                       'firebrick',
-                       'peru',
-                       'sienna',
-                       'gray']
+        colors = [
+                  'magenta',
+                  'cornflowerblue',
+                  'blue',
+                  'darkmagenta',
+                  'teal',
+                  'c',
+                  'lime',
+                  'firebrick',
+                  'gold',
+                  'salmon',
+                  'tab:orange',
+                  'darkgreen',
+                  'navy',
+                  'mediumpurple',
+                  'darkviolet',
+                  'deeppink',
+                  'hotpink',
+                  'peru',
+                  'sienna',
+                  'gray']
         markers = ['s',
                         'o',
                         'P',
@@ -1722,17 +1775,20 @@ class SOM:
         self.sample_vis = sample_vis
         self.include_D = include_D
         self.label_ID = label_ID  
-        self.labels = self.X[label_ID]
+        
         self.plane_vis = plane_vis
         self.plot_legend = plot_legend
         self.plot_fn_prefix = plot_fn_prefix
         
-        
-        if isinstance(legend_text,dict):
-            self.legend_text = legend_text
+        if sample_vis == 'colors':
+            self.color_col = 'colors'
         else:
-            label_set = set(self.labels)
-            self.legend_text = {}
-            for label in label_set:
-                self.legend_text[label] = '{}={}'.format(label_ID,label)
+            self.labels = self.X[label_ID]
+            if isinstance(legend_text,dict) and self.plot_legend:
+                self.legend_text = legend_text
+            else:
+                label_set = set(self.labels)
+                self.legend_text = {}
+                for label in label_set:
+                    self.legend_text[label] = '{}={}'.format(label_ID,label)
         
