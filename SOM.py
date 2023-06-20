@@ -18,6 +18,9 @@ from tslearn import metrics ##
 import sys
 import itertools
 from sklearn.cluster import AgglomerativeClustering
+from sklearn.metrics import calinski_harabasz_score #returns float, higher is better
+from sklearn.metrics import davies_bouldin_score    #returns float, 0 is min, lower is better
+from sklearn.metrics import silhouette_score        #scores between -1:1, 1 is best 
 import colormap as cust_cm
 
 
@@ -325,26 +328,72 @@ class SOM:
         self.LR_trace = []
         self.NH_trace = []
         
-    def cluster_weights(self):
+    def calc_grid_clusters(self):
         n_features,rows,cols = self.grid.shape
-        
-        # Get the clustering model to apply to the som_weights
-        # clustering = AgglomerativeClustering(
-        #     n_clusters = self.n_clusters, metric='euclidean', linkage='complete',compute_full_tree=True)
         
         linkage = 'complete'
         linkage = 'ward'
         clustering = AgglomerativeClustering(
             n_clusters = self.n_clusters, metric='euclidean', linkage=linkage,compute_full_tree=True)
         
-        temp_grid = self.grid.reshape((n_features,rows*cols)).T
+        self.temp_grid = self.grid.reshape((n_features,rows*cols)).T
                 
-        self.clustering = clustering.fit(temp_grid)
-        labels = clustering.labels_
-        self.grid_clusters = labels.reshape(rows,cols).T
+        self.clustering = clustering.fit(self.temp_grid)
+        self.cluster_labels = clustering.labels_
+        self.grid_clusters = self.cluster_labels.reshape(rows,cols).T
+        
+    def cluster_weights(self):
+        self.calc_grid_clusters()
         self.export_sample_clusters()
         
-    def export_sample_clusters(self):
+        
+# from sklearn.metrics import calinski_harabasz_score #returns float, higher is better
+# from sklearn.metrics import davies_bouldin_score    #returns float, 0 is min, lower is better
+# from sklearn.metrics import silhouette_samples      #Input to silouette_score
+# from sklearn.metrics import silhouette_score        #scores between -1:1, 1 is best 
+
+    def calinski_harabasz_score_plot(self,num_clusters_list,output_dir):
+        self.generate_score_plot(calinski_harabasz_score,'Calinski-Harabasz',num_clusters_list,output_dir)
+        
+    def davies_bouldin_score_plot(self,num_clusters_list,output_dir):
+        self.generate_score_plot(davies_bouldin_score,'Davies-Bouldin',num_clusters_list,output_dir)
+        
+    def silouette_score_plot(self,num_clusters_list,output_dir):
+        self.generate_score_plot(silhouette_score,'Silhouette',num_clusters_list,output_dir)
+        
+    def generate_score_plot(self,score_method,method_name,num_clusters_list,output_dir):
+        orig_font_size = plt.rcParams['font.size']
+        plt.rcParams['font.size'] = 22
+        grid_scores = []
+        samples_scores = []
+        for num_clusters in num_clusters_list:
+            self.n_clusters = num_clusters
+            self.calc_grid_clusters()
+            grid_scores.append(score_method(self.temp_grid,self.cluster_labels))
+            temp_df = self.assign_samples_to_clusters()
+            samples_scores.append(calinski_harabasz_score(temp_df[self.data_cols], temp_df.cluster))
+        
+        fig,ax = plt.subplots(1,1,figsize = [15,10])
+        ax.grid()
+        ax.plot(num_clusters_list,grid_scores,color='red',label='grid_weight scores')
+        ax.set_ylabel('{} Scores (weights)'.format(method_name))
+        # ax2 = ax.twinx()
+        # ax2.plot(num_clusters_list,samples_scores,color='blue',label='samples scores')
+        # ax2.set_ylabel('{} Scores (samples)'.format(method_name))
+        ax.set_xlabel('Number of Clusters')
+        fig.legend()
+        figname = os.path.join(output_dir,'cluster_quality_{}.png'.format(method_name))
+        fig.savefig(figname,bbox_inches='tight')
+        
+        plt.rcParams['font.size'] = orig_font_size
+        plt.close(fig)
+        
+        self.scores_df = pd.DataFrame({'num_clusters':num_clusters_list,'grid_scores':grid_scores,'samples_scores':samples_scores})
+        df_name = os.path.join(output_dir,'cluster_quality_scores_{}.csv'.format(method_name))
+        self.scores_df.to_csv(df_name)
+            
+        
+    def assign_samples_to_clusters(self):
         output_df = cp.deepcopy(self.X)
         #Loop through each training pattern
         have_series_labels = isinstance(self.labels,pd.core.series.Series)
@@ -356,7 +405,10 @@ class SOM:
             #     sample_id = output_df.loc[ind,self.sample_ID_col]
             #     output_df.loc[ind,self.labels.name] = self.labels[sample_id]
             output_df.loc[ind,'cluster'] = self.grid_clusters.T[self.winning]
+        return output_df
         
+    def export_sample_clusters(self):
+        output_df = self.assign_samples_to_clusters()
         # print('exporting sample clusters')
         output_df.to_csv(os.path.join(self.output_dir,'sample_clusters-{}.csv'.format(self.n_clusters)))
         
@@ -1079,7 +1131,7 @@ class SOM:
         
         self.plane_vis = plane_vis_bkup
                 
-    def plot_u_matrix(self,final_plot = True,fn_suffix = None):
+    def plot_u_matrix(self,final_plot = True,fn_suffix = None,drop_highest_x=None):
         """
         Generates a figure showing the u matrix
 
@@ -1141,18 +1193,31 @@ class SOM:
             #Set the colormap, colorbar label, and add the heatmap to the figure
             colormap = 'gray_r'
             cbar_label = 'Weight Change'
+         
+            # grid = np.sum(SOM_model.u_matrix,axis=0).T
+            if isinstance(drop_highest_x,int):
+                for i in range(drop_highest_x):
+                    grid[grid == grid.max()] = -999
+                grid[grid == -999] = grid.max()
+                    
+        
         # cbar_label = None
         self.add_heatmap(grid, colormap,cbar_label)
         #save the figure to file
         plt.tight_layout()
         
         if final_plot:
-            fn = '{}_final_{}_epochs.png'.format(plot_type,self.epoch+1)
+            fn = '{}_final_{}_epochs'.format(plot_type,self.epoch+1)
         else:
-            fn = '{}_ep-{}.png'.format(plot_type,self.epoch)
+            fn = '{}_ep-{}'.format(plot_type,self.epoch)
             
         if not isinstance(self.plot_fn_prefix,type(None)):
             fn = '{}{}'.format(self.plot_fn_prefix,fn)
+            
+        if not isinstance(self.plot_fn_suffix,type(None)):
+            fn = '{}{}'.format(fn,self.plot_fn_suffix)
+            
+        fn = '{}.png'.format(fn)
             
         if self.output_dir == None:
             plt.savefig(fn)
@@ -1218,12 +1283,17 @@ class SOM:
                 plane_vis = ''
             
             if final_plot:
-                fn = 'feature_plane-{}{}_final_{}-epochs.png'.format(self.data_cols_mod[i],plane_vis,self.epoch+1)
+                fn = 'feature_plane-{}{}_final_{}-epochs'.format(self.data_cols_mod[i],plane_vis,self.epoch+1)
             else:
-                fn = 'feature_plane-{}{}_ep-{}.png'.format(self.data_cols_mod[i],plane_vis,self.epoch)
+                fn = 'feature_plane-{}{}_ep-{}'.format(self.data_cols_mod[i],plane_vis,self.epoch)
             
             if not isinstance(self.plot_fn_prefix,type(None)):
                 fn = '{}{}'.format(self.plot_fn_prefix,fn)
+                
+            if not isinstance(self.plot_fn_suffix,type(None)):
+                fn = '{}{}'.format(fn,self.plot_fn_suffix)
+                
+            fn = '{}.png'.format(fn)
                 
             if self.output_dir == None:
                 plt.savefig(fn)
@@ -1770,7 +1840,7 @@ class SOM:
             self.colors = colors
             
         
-    def visualization_settings(self,output_dir,sample_vis,legend_text,include_D,label_ID,plane_vis,plot_legend,plot_fn_prefix):
+    def visualization_settings(self,output_dir,sample_vis,legend_text,include_D,label_ID,plane_vis,plot_legend,plot_fn_prefix,plot_fn_suffix):
         self.output_dir = output_dir
         self.sample_vis = sample_vis
         self.include_D = include_D
@@ -1779,6 +1849,7 @@ class SOM:
         self.plane_vis = plane_vis
         self.plot_legend = plot_legend
         self.plot_fn_prefix = plot_fn_prefix
+        self.plot_fn_suffix = plot_fn_suffix
         
         if sample_vis == 'colors':
             self.color_col = 'colors'
