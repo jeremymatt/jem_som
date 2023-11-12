@@ -1192,6 +1192,7 @@ class SOM:
             
             #Set the colormap, colorbar label, and add the heatmap to the figure
             colormap = 'gray_r'
+            colormap = self.u_matrix_colormap
             cbar_label = 'Weight Change'
          
             # grid = np.sum(SOM_model.u_matrix,axis=0).T
@@ -1379,7 +1380,7 @@ class SOM:
             #Determine if the text needs to be offset to avoid plotting over
             #a previous label
             method = 'grid_fraction'
-            xytext = self.get_text_offset(used_inds,method)
+            xytext = self.get_point_offset(used_inds)
             #Add the winning coordinates to the list of used coordinates
             used_inds.append(self.winning)
             
@@ -1390,7 +1391,7 @@ class SOM:
                 
             
             #Add the label to the winning point on the map
-            self.ax.scatter(self.winning[0]+xytext[0],self.winning[1]+xytext[1],marker='o',s = self.marker_size,color=color)
+            self.ax.scatter(self.winning[0]+xytext[0],self.winning[1]+xytext[1],marker='o',s = self.marker_size,color=color,alpha=self.sample_point_alpha)
         
     def gen_color_col(self,cur_color_cols,alpha,color_map='viridis'):
         
@@ -1567,6 +1568,18 @@ class SOM:
             DESCRIPTION.
 
         """
+        
+        used_prev = self.find_num_used_prev(used_inds)
+        
+        #The number of points to offset each subsequent label
+        if method == 'points':
+            #Determine how far to offset text labels
+            offset = 15
+            
+            xytext = (0,used_prev*offset)
+            return xytext
+        
+    def find_num_used_prev(self,used_inds):
         #If the length of used_inds is greater than 0, at least one point was
         #previously plotted; check if the current point is an overlap
         if len(used_inds)>0:
@@ -1588,47 +1601,60 @@ class SOM:
             #If there are no elements in used_ind, the current point was not 
             #used previously
             used_prev = 0
-        #The number of points to offset each subsequent label
-        if method == 'points':
-            #Determine how far to offset text labels
-            offset = 15
             
-            xytext = (0,used_prev*offset)
-            return xytext
+        return used_prev
+            
+    def get_normal_random(self):
+        x = np.random.normal(loc=0,scale=0.25)
+        x = max([0,x])
+        x = min([1,x])
+        return x
+    
+    def get_point_offset_random(self,used_inds):
+        
+        x = self.get_normal_random()
+        y = self.get_normal_random()
+        
+        return (x,y)
+        
+    def get_point_offset_geometric(self,used_inds):
+        
+        
+        used_prev = self.find_num_used_prev(used_inds)
+        
+        #Determine how far and in what direction to offset symbols
+        fraction = 0.025
+        yval = self.grid_size[1]
+        xval = self.grid_size[0]
+        yoffset = fraction*yval
+        xoffset = fraction*xval
+        #Store the total offset (the offset per previous label times the number
+        #of previous labels) in a tuple
+        dir_tpls = [
+            (1,1),
+            (1,0),
+            (1,-1),
+            (0,1),
+            (0,-1),
+            (-1,1),
+            (-1,0),
+            (-1,-1)]
+        
+        #If the node has not yet "won", set the x/y offset to zero
+        if used_prev == 0:
+            first = 0
         else:
-            #Determine how far and in what direction to offset symbols
-            fraction = 0.025
-            yval = self.grid_size[1]
-            xval = self.grid_size[0]
-            yoffset = fraction*yval
-            xoffset = fraction*xval
-            #Store the total offset (the offset per previous label times the number
-            #of previous labels) in a tuple
-            dir_tpls = [
-                (1,1),
-                (1,0),
-                (1,-1),
-                (0,1),
-                (0,-1),
-                (-1,1),
-                (-1,0),
-                (-1,-1)]
-            
-            #If the node has not yet "won", set the x/y offset to zero
-            if used_prev == 0:
-                first = 0
-            else:
-                first = 1
-               
-            #determine the direction to offset
-            ind = used_prev%8
-            #determine the distance to offset
-            mult = int((used_prev-1)/8)+1
-            x_off = first*mult*dir_tpls[ind][0]*xoffset
-            y_off = first*mult*dir_tpls[ind][1]*yoffset
-            xytext = (x_off,y_off)
-            
-            return xytext
+            first = 1
+           
+        #determine the direction to offset
+        ind = used_prev%8
+        #determine the distance to offset
+        mult = int((used_prev-1)/8)+1
+        x_off = first*mult*dir_tpls[ind][0]*xoffset
+        y_off = first*mult*dir_tpls[ind][1]*yoffset
+        xytext = (x_off,y_off)
+        
+        return xytext
     
     def plot_weight_change(self):
         """
@@ -1840,7 +1866,19 @@ class SOM:
             self.colors = colors
             
         
-    def visualization_settings(self,output_dir,sample_vis,legend_text,include_D,label_ID,plane_vis,plot_legend,plot_fn_prefix,plot_fn_suffix):
+    def visualization_settings(self,
+                               output_dir,
+                               sample_vis,
+                               legend_text,
+                               include_D,
+                               label_ID,
+                               plane_vis,
+                               plot_legend,
+                               plot_fn_prefix,
+                               plot_fn_suffix,
+                               u_matrix_colormap='grey_r',
+                               sample_point_placement='geometric',
+                               sample_point_alpha=1):
         self.output_dir = output_dir
         self.sample_vis = sample_vis
         self.include_D = include_D
@@ -1850,6 +1888,15 @@ class SOM:
         self.plot_legend = plot_legend
         self.plot_fn_prefix = plot_fn_prefix
         self.plot_fn_suffix = plot_fn_suffix
+        
+        self.sample_point_alpha = sample_point_alpha
+        
+        if sample_point_placement == 'random':
+            self.get_point_offset = self.get_point_offset_random
+        else:
+            self.get_point_offset = self.get_point_offset_geometric
+        
+        self.u_matrix_colormap = u_matrix_colormap
         
         if sample_vis == 'colors':
             self.color_col = 'colors'
